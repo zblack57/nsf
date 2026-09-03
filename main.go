@@ -337,8 +337,8 @@ func (f *ListFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 func main() {
 
 	printBanner()
-	fmt.Println("=====+ NSF +=====")
-	fmt.Println("===+ Zblack +===")
+	fmt.Println("======+ NSF +======")
+	fmt.Println("====+ Zblack +====")
 	fmt.Println()
 
 	// Parse command-line flags
