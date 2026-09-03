@@ -398,7 +398,7 @@ func (f *ListFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 func main() {
 
 	printBanner()
-	fmt.Println(colorGreen("=====+ NFS +====="))
+	fmt.Println(colorGreen("=====+ NSF +====="))
 	fmt.Println(colorCyan("====+ Zblack +===="))
 	fmt.Println()
 
