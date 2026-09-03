@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"math/rand"
@@ -33,6 +34,7 @@ var (
 	urlSuffixPool []string
 	cookiePool    []string
 	uaPool        []string
+	verboseMode   bool
 )
 
 func initPools(ua []string) {
@@ -183,7 +185,12 @@ func sendRequest(
 
 // ---------- Monitor ----------
 func monitorProgress(ctx context.Context, log *logrus.Logger, stats *requestStats) {
-	ticker := time.NewTicker(1 * time.Second)
+	interval := 1 * time.Second
+	if verboseMode {
+		interval = 2 * time.Second
+	}
+	
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	var prevSuccess, prevFailure int64
 	for {
@@ -203,6 +210,14 @@ func monitorProgress(ctx context.Context, log *logrus.Logger, stats *requestStat
 			prevSuccess, prevFailure = totalSuccess, totalFailure
 
 			if deltaS == 0 && deltaF == 0 {
+				if verboseMode {
+					// In verbose mode, always log even if zero activity
+					log.WithFields(logrus.Fields{
+						"success_rps":  deltaS,
+						"failure_rps":  deltaF,
+						"requests_rps": deltaS + deltaF,
+					}).Info("Throughput")
+				}
 				continue
 			}
 			log.WithFields(logrus.Fields{
@@ -326,10 +341,18 @@ func main() {
 	fmt.Println("===+ Zblack +===")
 	fmt.Println()
 
+	// Parse command-line flags
+	flag.BoolVar(&verboseMode, "verbose", false, "Enable verbose logging (logs every 2 seconds)")
+	flag.Parse()
+
 	log := logrus.New()
 	log.SetFormatter(&ListFormatter{})
 	log.SetOutput(os.Stdout)
 	log.SetLevel(logrus.InfoLevel)
+
+	if verboseMode {
+		log.Info("Verbose mode enabled - logs every 2 seconds")
+	}
 
 	targetURL := promptUserInput("target URL: ")
 	if targetURL == "" {
